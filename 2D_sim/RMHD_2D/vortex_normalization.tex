@@ -1,0 +1,391 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{bm}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage[colorlinks=true,linkcolor=blue,urlcolor=blue]{hyperref}
+\usepackage{siunitx}
+\usepackage{empheq}
+
+\newcommand{\pb}[2]{\{#1,\,#2\}}
+\newcommand{\vE}{\bm{V}_E}
+\newcommand{\bhat}{\hat{\bm{b}}}
+\newcommand{\gradperp}{\nabla_{\!\perp}}
+\newcommand{\dd}[2]{\frac{\partial #1}{\partial #2}}
+\renewcommand{\arraystretch}{1.3}
+
+\title{\textbf{Vortex--Confinement Equations:\\
+From Un-normalized Reduced Drift-MHD to the GDB5B Normalization}}
+\author{GDB5B / \texttt{vortex\_jit} project notes}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+The \texttt{vortex\_jit} solver integrates the Beklemishev vortex-confinement
+model (Beklemishev \emph{et al.}, \emph{Fusion Sci.\ Technol.}\ \textbf{57} (2010)
+351, Eqs.~7--8). Those equations are quoted in the paper \emph{already
+normalized}, using reference scales specific to the GDT experiment --- in
+particular the potential is normalized to the \emph{applied wall-bias amplitude}
+$\phi_0$. The GDB5B family of codes uses a different, machine-independent
+normalization (lengths to $L_0$, potential to $T_{e0}/e$, pressure to
+$n_0 T_{e0}$). This note (i)~re-derives the two evolution equations from the
+un-normalized reduced drift-MHD system, (ii)~applies the \emph{GDB5B}
+normalization to obtain the dimensionless form, (iii)~gives the exact rescaling
+that maps Beklemishev's coefficients onto GDB5B ones, and (iv)~fixes the physical
+units of every input in \texttt{input.toml}. The central practical result: the
+\emph{form} of Eqs.~7--8 is invariant, but the numerical values of
+$U,\,H,\,\kappa$ must be rescaled by the ratio of the potential/pressure
+reference scales, and user inputs (e.g.\ ring voltages in volts) are converted to
+normalized units by dividing by the corresponding base.
+\end{abstract}
+
+\section{Notation and geometry}
+We work in the paraxial, low-$\beta$, flute (2-D) approximation of an axisymmetric
+mirror: perturbations are constant along the field line $\bhat$, and dynamics
+live in the plane transverse to $\bhat$ with coordinates $(x,y)$ and radius
+$r^2=x^2+y^2$. The uniform guide field is $\bm{B}=B_0\bhat$. The transverse
+Poisson bracket is
+\begin{equation}
+  \pb{a}{b} \;\equiv\; \partial_x a\,\partial_y b - \partial_y a\,\partial_x b,
+  \qquad
+  \vE\cdot\nabla f \;=\; \frac{1}{B_0}\,\pb{\phi}{f},
+  \label{eq:bracket}
+\end{equation}
+where $\vE=\bhat\times\nabla\phi/B_0$ is the $\bm{E}\times\bm{B}$ drift velocity
+(SI units; the paper uses Gaussian units, in which $\vE=c\,\bhat\times\nabla\phi/B$
+and factors of $c$ decorate the current terms). We evolve two fields: the plasma
+pressure $p(x,y,t)$ and the electrostatic potential $\phi(x,y,t)$; the
+generalized vorticity is $\varpi=\gradperp^2\phi$ (Boussinesq: uniform $n$, $B$).
+
+\section{Un-normalized reduced drift-MHD model}
+\label{sec:unnorm}
+
+\subsection{Pressure convection (paper Eq.~2)}
+In the quasi-uniform field the pressure is simply advected by the
+$\bm{E}\times\bm{B}$ flow, with small collisional/loss/source corrections:
+\begin{equation}
+  \dd{p}{t} + \vE\cdot\nabla p
+    \;=\; \nu_4^{p}\,\gradperp^2 p \;-\; \nu_5^{p}\,p \;+\; q_p,
+  \label{eq:pdim}
+\end{equation}
+with $\nu_4^p$ the transverse (collisional) diffusivity [\si{m^2/s}],
+$\nu_5^p$ the axial-loss rate [\si{1/s}], and $q_p$ the heating source
+[\si{Pa/s}]. Using \eqref{eq:bracket}, $\vE\cdot\nabla p = B_0^{-1}\pb{\phi}{p}$.
+
+\subsection{Charge continuity and the vorticity equation}
+Quasi-neutrality with axial currents reads $\nabla\!\cdot\!\bm{j}_\perp +
+\nabla_\parallel j_\parallel = 0$. Field-line integration over the half-length
+$L$ of the trap converts the parallel term into a \emph{line-tying} boundary
+current to the biased end plate (paper Eq.~1),
+\begin{equation}
+  \int \frac{\nabla\!\cdot\!\bm{j}_\perp}{B}\,\mathrm{d}\ell
+    \;=\; -\,\frac{J_{i0}}{B}\!\left(1-\exp\!\Big[\tfrac{e(\phi_w-\phi)}{T_e}\Big]\right)
+    \;\simeq\; -\,\frac{J_{i0}}{B}\,\frac{e}{T_e}\,(\phi-\phi_w),
+  \label{eq:linetie}
+\end{equation}
+where $\phi_w=\phi_{\rm fl}+\phi_{\rm wall}$ combines the floating potential and
+the applied wall bias, and $J_{i0}$ is the equilibrium axial ion current. The
+transverse current divergence has three physically distinct pieces (paper
+Eqs.~3--6), obtained from the two-fluid momentum balance following Simakov \&
+Catto:
+\begin{align}
+  \text{diamagnetic (curvature):}\quad
+  \nabla\!\cdot\!\bm{j}_d &= \nabla\!\times\!\tfrac{\bhat}{B}\cdot\nabla p
+     \;=\; \mathcal{K}\,\pb{r^2}{p},
+  \label{eq:jd}\\[2pt]
+  \text{viscous:}\quad
+  \nabla\!\cdot\!\bm{j}_\eta &= \tfrac{\eta_i}{e n B^2}\,\gradperp^2\!
+     \big(\nabla\!\cdot(e n\,\gradperp\phi + \gradperp p_i)\big),
+  \label{eq:jeta}\\[2pt]
+  \text{polarization (inertia):}\quad
+  \nabla\!\cdot\!\bm{j}_{pi} &\simeq -\frac{1}{B\,\Omega_i}
+     \Big(\partial_t\gradperp^2(e n\phi)
+       + \tfrac{1}{B}\nabla\!\cdot\!\pb{\phi}{en\gradperp\phi}
+       - \tfrac{1}{B}\nabla\!\cdot\!\pb{\gradperp\phi}{p_i}
+       + \gradperp^2 s_p\Big),
+  \label{eq:jpol}
+\end{align}
+with $\mathcal{K}=|\nabla\!\times\!(\bhat/B)|/2r$ the field curvature and
+$\Omega_i=ZeB/m_i$ the ion cyclotron frequency. The polarization piece
+\eqref{eq:jpol} has been simplified by eliminating $\partial_t\gradperp^2 p_i$
+through the pressure equation \eqref{eq:pdim}, so that $s_p\equiv
+\nu_4^p\gradperp^2 p-\nu_5^p p+q_p$ is the right-hand side of the pressure
+equation itself (paper Eq.~6). Assembling $\nabla\!\cdot\!\bm{j}_\perp +
+\nabla_\parallel j_\parallel = 0$, dividing by the polarization prefactor
+$e n/(B\Omega_i)=n m_i/B^2$ (Boussinesq), and writing $\varpi=\gradperp^2\phi$
+gives the \emph{dimensional} vorticity equation
+\begin{equation}
+  \boxed{\;
+  \partial_t\varpi + \frac{1}{B_0}\pb{\phi}{\varpi}
+     - \frac{1}{e n}\,\nabla\!\cdot\!\pb{\gradperp\phi}{p_i}
+  \;=\;
+  \frac{B_0^2}{n m_i}\Big[\underbrace{-\tfrac{J_{i0}e}{B T_e L}(\phi-\phi_w)}_{\text{line-tying}}
+     + \underbrace{\mathcal{K}\pb{r^2}{p}}_{\text{curvature}}
+     + \underbrace{\nabla\!\cdot\!\bm{j}_\eta}_{\text{viscous}}\Big]
+     - \frac{1}{e n}\gradperp^2 s_p .
+  \;}
+  \label{eq:vortdim}
+\end{equation}
+The viscous term reduces, under the paper's regularization, to a hyperviscous
+$-\nu_4\gradperp^4\phi$ and a drag $-\nu_5\gradperp^2\phi$; the FLR (ion-pressure)
+polarization term is the $\nabla\!\cdot\!\pb{\gradperp\phi}{p_i}$ contribution on
+the left, which will carry the coefficient $U$.
+
+\section{GDB5B normalization}
+\label{sec:gdb5b}
+
+\subsection{Reference scales}
+GDB5B normalizes to \emph{machine-independent} plasma scales, not to the applied
+bias. Let a caret denote a dimensionless quantity, $\phi=\bar\phi\,\hat\phi$ etc.:
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Quantity & Base & Value in \texttt{config.py}\\
+\midrule
+length      & $L_0$      & \texttt{L0} (or $\rho_s=c_s/\Omega_i$ if \texttt{L0}$\le0$)\\
+potential   & $\bar\phi = T_{e0}/e$ & \texttt{phi\_bar = T0}\; [\si{V}] \\
+pressure    & $\bar P = n_0 T_{e0}$ & \texttt{P\_bar = n0*T0*e}\; [\si{Pa}]\\
+field       & $B_0$      & \texttt{B0}\; [\si{T}]\\
+velocity    & $\bar v = \bar\phi/(B_0 L_0)$ & $\bm{E}\times\bm{B}$ reference speed\\
+\textbf{time} & $\bar t = B_0 L_0^2/\bar\phi = L_0/\bar v$ & \texttt{t\_bar}\; ($\bm{E}\times\bm{B}$ period)\\
+\bottomrule
+\end{tabular}
+\end{center}
+Here $T_{e0}$ is in energy units and $\bar\phi=T_{e0}/e$ is the electron
+temperature expressed in \emph{volts} (numerically $\bar\phi[\si{V}]=T_0[\si{eV}]$).
+
+\subsection{Choice of $\bar t$ makes advection unity}
+Insert $\phi=\bar\phi\hat\phi$, $p=\bar P\hat P$, $\bm{x}=L_0\hat{\bm{x}}$,
+$t=\bar t\,\hat t$ into the pressure equation \eqref{eq:pdim}. Dividing by
+$\bar P/\bar t$,
+\begin{equation}
+  \partial_{\hat t}\hat P
+   + \frac{\bar t\,\bar\phi}{B_0 L_0^2}\,\pb{\hat\phi}{\hat P}
+   = \frac{\bar t\,\nu_4^p}{L_0^2}\,\hat\nabla^2\hat P
+   - \bar t\,\nu_5^p\,\hat P
+   + \frac{\bar t}{\bar P}\,q_p .
+\end{equation}
+The advection coefficient is $\bar t\,\bar\phi/(B_0 L_0^2)$, which equals
+\textbf{1} precisely when $\bar t = B_0 L_0^2/\bar\phi$ --- the GDB5B time base.
+The same substitution on the vorticity equation \eqref{eq:vortdim}, dividing by
+the polarization prefactor $\dfrac{n_0 m_i}{B_0^2}\dfrac{\bar\phi}{\bar t L_0^2}$,
+turns the inertia + $\bm{E}\times\bm{B}$ terms into $\partial_{\hat t}\hat\varpi
++ \pb{\hat\phi}{\hat\varpi}$ with unit coefficient (the same cancellation).
+We recover exactly the paper's dimensionless form, now in \emph{GDB5B} units:
+\begin{empheq}[box=\fbox]{align}
+  \partial_{\hat t}\hat P + \pb{\hat\phi}{\hat P}
+    &= \nu_4^{p}\,\hat\nabla^2\hat P - \nu_5^{p}(r)\,\hat P + Q_p,
+    \tag{8}\label{eq:P}\\[4pt]
+  \partial_{\hat t}\hat\varpi + \pb{\hat\phi}{\hat\varpi}
+    - U\,\hat\nabla\!\cdot\!\pb{\hat\nabla\hat\phi}{\hat P}
+    &= H(\hat\phi-\hat\phi_w) + \kappa\,\pb{\hat P}{r^2}
+       + \nu_4\hat\nabla^2\hat\varpi - \nu_5(r)\,\hat\varpi - U\hat\nabla^2 S_p,
+    \tag{7}\label{eq:vort}
+\end{empheq}
+with $\hat\varpi=\hat\nabla^2\hat\phi$. \textbf{This is the system the code
+solves.} The dimensionless coefficients are the physical rates/drives multiplied
+by the appropriate power of the time base:
+\begin{equation}
+  \nu_5^{(p)} = \bar t\,\nu_5^{(p),\rm phys},\quad
+  \nu_4^{(p)} = \frac{\bar t}{L_0^2}\,\nu_4^{(p),\rm phys},\quad
+  Q_p = \frac{\bar t}{\bar P}\,q_p,\quad
+  H \sim \bar t\,\Gamma_{\rm wall},\quad
+  \kappa \sim \bar t^{\,2}\,\frac{\mathcal{K}\bar P}{n_0 m_i L_0}.
+  \label{eq:coeffscaling}
+\end{equation}
+The FLR coefficient is especially transparent:
+\begin{equation}
+  U = \frac{p_{i0}}{e\,n_0\,\bar\phi} = \frac{p_{i0}}{n_0 T_{e0}}
+    = \frac{T_{i0}}{T_{e0}} \;\equiv\; \tau_i \quad(\text{if } p_{i0}=n_0 T_{i0}),
+  \label{eq:U}
+\end{equation}
+\emph{an order-unity number} in GDB5B units --- to be contrasted with
+Beklemishev's $U=-5$ to $-20$ (next section). The detailed machine expressions
+for $H$ and $\kappa$ are the paper's Eqs.~(9)--(10) with the substitutions
+$\tau\!\to\!\bar t$ and $\phi_0\!\to\!\bar\phi=T_{e0}/e$.
+
+\section{Relation to Beklemishev's normalization}
+\label{sec:bek}
+
+Beklemishev normalizes the potential to the \emph{applied wall-bias amplitude}
+$\phi_0$ and the pressure to the \emph{on-axis} value $p_0$, with time base
+$\tau=B_0 L_0^2/\phi_0$ (his lengths use the same flow-layer radius
+$R_0\!\equiv\!L_0$). Define the two scale ratios
+\begin{equation}
+  \beta_\phi \;\equiv\; \frac{\phi_0}{\bar\phi} = \frac{e\,\phi_0}{T_{e0}},
+  \qquad
+  \beta_P \;\equiv\; \frac{p_0}{\bar P} = \frac{p_0}{n_0 T_{e0}} .
+\end{equation}
+The dimensionless fields relate as $\hat\phi_{\rm G}=\beta_\phi\hat\phi_{\rm B}$,
+$\hat P_{\rm G}=\beta_P\hat P_{\rm B}$, and the time variables as
+$\hat t_{\rm G}=\hat t_{\rm B}/\beta_\phi$ (since $\bar t=\beta_\phi\tau$).
+Substituting into the Beklemishev-normalized Eqs.~(7)--(8) and requiring the
+advection term to keep unit coefficient (multiply the vorticity equation by
+$\beta_\phi^2$, the pressure equation by $\beta_\phi\beta_P$) leaves the
+\emph{form} unchanged and maps every coefficient:
+\begin{center}
+\begin{tabular}{lccl}
+\toprule
+Coefficient & Beklemishev & $\times$ factor & GDB5B\\
+\midrule
+$H$   (line-tying)      & $H_{\rm B}$      & $\beta_\phi$              & $H_{\rm G}=\beta_\phi H_{\rm B}$\\
+$U$   (FLR)             & $U_{\rm B}$      & $\beta_\phi/\beta_P$      & $U_{\rm G}=(\beta_\phi/\beta_P)\,U_{\rm B}$\\
+$\kappa$ (curvature)    & $\kappa_{\rm B}$ & $\beta_\phi^2/\beta_P$    & $\kappa_{\rm G}=(\beta_\phi^2/\beta_P)\,\kappa_{\rm B}$\\
+$\nu_4,\nu_5$           & --               & $\beta_\phi$              & $\nu_{\rm G}=\beta_\phi\,\nu_{\rm B}$\\
+$\nu_4^p,\nu_5^p$       & --               & $\beta_\phi$              & $\nu^p_{\rm G}=\beta_\phi\,\nu^p_{\rm B}$\\
+$Q_p$                   & --               & $\beta_\phi\beta_P$       & $Q_{p,\rm G}=\beta_\phi\beta_P\,Q_{p,\rm B}$\\
+$\hat\phi_w$ (wall bias)& $O(1)$           & $\beta_\phi$              & $\hat\phi_{w,\rm G}=\beta_\phi\,\hat\phi_{w,\rm B}=eV_{\rm ring}/T_{e0}$\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Consistency condition.} If the machine is such that
+$\phi_0=T_{e0}/e$ ($\beta_\phi=1$) \emph{and} $p_0=n_0 T_{e0}$ ($\beta_P=1$),
+every factor is unity and \textbf{Beklemishev's tabulated values carry over
+unchanged}: $H=10$, $\kappa=1$, $U=0$ (Fig.~5) or $U=-5$ (Fig.~6),
+$\nu_5=0.02$, $\nu_4=0.002$. This is the default assumption baked into
+\texttt{input.toml}. When your machine's applied bias $\phi_0$ differs from
+$T_{e0}/e$, multiply as in the table. Concretely, Beklemishev's large
+$|U|=5\text{--}20$ is \emph{not} a large physical FLR effect --- it is
+$U_{\rm G}\!\sim\!\tau_i\!\sim\!1$ divided by $\beta_\phi=e\phi_0/T_{e0}\!\ll\!1$;
+his bias amplitude $\phi_0$ is a small fraction of $T_{e0}/e$, which inflates the
+bookkeeping value of $U$.
+
+\section{GDT vs.\ WHAM: physical coefficient values}
+\label{sec:gdtwham}
+
+The dimensionless coefficients $U,H,\kappa,\nu$ are \emph{machine-specific}.
+Beklemishev's tabulated values ($U=-5$, $H=10$, $\kappa=1$, $\nu_5=0.02$,
+$\nu_4=0.002$) reproduce his GDT figures, but a different device requires
+recomputing them from its parameters through the GDB5B-normalized definitions of
+Secs.~\ref{sec:gdb5b}--\ref{sec:bek}. We estimate them here for WHAM (the Wisconsin
+HTS Axisymmetric Mirror; Endrizzi \emph{et al.}\ 2023; Frank \emph{et al.}\ 2026).
+
+\paragraph{WHAM reference bases.} With $B_0=0.86\,$T, $n_0=2\times10^{19}\,$m$^{-3}$,
+$T_{e0}=1\,$keV, $L_0=0.2\,$m, deuterium ($A_i=2$):
+\[
+  \bar t=\frac{B_0 L_0^2}{\bar\phi}=34.4\,\mu\text{s},\quad
+  \bar\phi=\frac{T_{e0}}{e}=1000\,\text{V},\quad
+  \bar P=n_0T_{e0}=3.2\,\text{kPa},\quad
+  \rho_s=5.3\,\text{mm}.
+\]
+
+\begin{center}
+\begin{tabular}{p{2.1cm} p{2.9cm} p{5.0cm} p{2.0cm}}
+\toprule
+Coefficient & WHAM estimate & Physical basis & vs.\ GDT\\
+\midrule
+$U$ (FLR)            & $\approx -10$ ($-5$ to $-20$) & $U=T_{i0}/T_{e0}$; fast ions $\sim\!10\,$keV over $T_e\!\sim\!1\,$keV & larger\\
+$\hat\phi_w$ (bias)  & up to $\approx 2.5$           & $2.5\,$kV rings $/\,\bar\phi=1\,$kV & $\sim\!2.5\times$ deeper\\
+$\nu_5,\nu_5^p$      & $\approx 0.03$--$0.7$         & $\bar t/\tau_\parallel$; Pastukhov ($\tau\!\sim\!$ms) to gas-dynamic ($\tau\!\sim\!50\,\mu$s) & uncertain\\
+$\kappa$ (curvature) & $\approx 1$ (sign $+$)        & mirror bad curvature (on-axis hill) & similar\\
+$H$ (line-tying)     & $\approx \mathcal{O}(10)$     & biased-limiter sheath current $\times\bar t$ & similar\\
+$\nu_4,\nu_4^p$      & $\approx 0.001$--$0.002$      & regularization ($D_\perp\bar t/L_0^2$; classical smaller) & same\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{What differs from the paper defaults.}
+\begin{enumerate}
+\item \textbf{$U\approx-10$, not $-5$.} WHAM's fast/sloshing ions ($\sim\!10\,$keV,
+from $25\,$keV NBI) over $T_e\sim1\,$keV give $T_i/T_e\sim10$, so FLR is
+\emph{stronger} than the Fig.~5/6 default (larger still with the $25\,$keV
+injection energy).
+\item \textbf{Bias $\hat\phi_w$ up to $\sim2.5$}, not the $\mathcal{O}(1)$ ``unit
+bowl.'' WHAM's $2.5\,$kV rings over $\bar\phi=1\,$kV drive a $\sim2.5\times$ deeper
+potential well, hence stronger sheared $E\times B$ rotation --- the knob that most
+directly sets the vortex.
+\item \textbf{$\nu_5$ spans an order of magnitude.} Since $\nu_5=\bar t/\tau_\parallel$,
+it depends on the confinement regime: Pastukhov/ambipolar ($\tau_\parallel\!\sim\!$ms
+$\Rightarrow\nu_5\!\sim\!0.03$, near the paper value) vs.\ gas-dynamic
+($\tau_\parallel\!\sim\!50\,\mu$s $\Rightarrow\nu_5\!\sim\!0.7$, axial loss
+\emph{faster} than the $E\times B$ time). Behind the limiter it is $\times20$
+regardless.
+\end{enumerate}
+
+\paragraph{Caveats.} $\kappa$ and $H$ are order-of-magnitude only: $\kappa$ needs
+WHAM's $1/B(r,z)$ curvature profile (and its \emph{sign}, here assumed unfavorable),
+$H$ the end-ring sheath-current model. $U$ and $\nu_5$ carry genuine physics
+uncertainty (non-thermal $T_i$; confinement regime), not just normalization
+bookkeeping. The order-unity defaults are a sound \emph{qualitative} starting
+point; a \emph{quantitative} WHAM run should use $U\approx-10$, $\hat\phi_w$ up to
+$2.5$, and $\nu_5$ chosen for the intended confinement regime.
+
+\section{Units of the input file}
+\label{sec:units}
+
+The solver runs entirely in the GDB5B-normalized variables of
+Eqs.~\eqref{eq:P}--\eqref{eq:vort}. Physical inputs are converted at load time
+using the bases of Sec.~\ref{sec:gdb5b}. The \texttt{[normalization]} section
+sets $B_0,n_0,T_{e0},L_0$ and hence every base.
+\begin{center}
+\begin{tabular}{p{3.4cm} p{2.6cm} p{3.0cm} p{4.5cm}}
+\toprule
+Input (\texttt{input.toml}) & Physical unit & Normalized by & Note\\
+\midrule
+\texttt{[bias] ring\_volts}   & volts [\si{V}]        & $\bar\phi=T_0$        & $\hat\phi_w = V_{\rm ring}/T_0$\\
+\texttt{[bias] ring\_radii}   & $L_0$ (or \si{m})     & $L_0$ if physical     & ring outer radii\\
+\texttt{[domain] Lx, Ly}      & $L_0$ (or \si{m})     & $L_0$ if physical     & box size\\
+\texttt{limiter\_radius}      & $L_0$ (or \si{m})     & $L_0$ if physical     & limiter at $r=1.5\,L_0$ (paper)\\
+\texttt{[initial] pres\_amp}  & $\bar P$ (or \si{Pa}) & $\bar P$ if physical  & on-axis pressure\\
+\texttt{pres\_width}          & $L_0$ (or \si{m})     & $L_0$ if physical     & profile width\\
+\texttt{U,H,kappa}            & dimensionless         & ---                   & see Sec.~\ref{sec:bek} table\\
+\texttt{nu4,nu5,nu4p,nu5p}    & dimensionless         & ($\bar t$, $\bar t/L_0^2$) & or give physical rate $\times\bar t$\\
+\texttt{[time] dt}            & $\bar t$              & $\bar t$              & physical $\Delta t = \mathtt{dt}\cdot\bar t$\\
+\bottomrule
+\end{tabular}
+\end{center}
+The code exposes explicit unit switches so the user can enter machine values
+directly:
+\texttt{[bias] units = "volts"} (default; divide by $\bar\phi$) or
+\texttt{"normalized"};
+\texttt{[domain] length\_units = "L0"} (default) or \texttt{"m"} (divide lengths
+by $L_0$);
+\texttt{[initial] pres\_units = "normalized"} (default) or \texttt{"Pa"}
+(divide by $\bar P$).
+
+\section{Cross-check against the implementation}
+\label{sec:code}
+Each RHS term in \texttt{stepper.py} maps one-to-one onto
+Eqs.~\eqref{eq:P}--\eqref{eq:vort}:
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Term & Equation & \texttt{stepper.py}\\
+\midrule
+$-\pb{\hat\phi}{\hat P}$              & \eqref{eq:P}    & \texttt{-akw(phi,pres,kp)}\\
+$+\nu_4^p\hat\nabla^2\hat P$          & \eqref{eq:P}    & \texttt{+nu4p*delsq(pres,kp)}\\
+$-\nu_5^p(r)\hat P$                   & \eqref{eq:P}    & \texttt{-nu5p\_field*pres}\\
+$+Q_p$                               & \eqref{eq:P}    & \texttt{+Qp}\\
+$-\pb{\hat\phi}{\hat\varpi}$          & \eqref{eq:vort} & \texttt{-akw(phi,vort,kp)}\\
+$+H(\hat\phi-\hat\phi_w)$             & \eqref{eq:vort} & \texttt{+H*(phi-phi\_w)}\\
+$+\kappa\pb{\hat P}{r^2}$             & \eqref{eq:vort} & \texttt{+kappa*akw(pres,r2,kp)}\\
+$+\nu_4\hat\nabla^2\hat\varpi$        & \eqref{eq:vort} & \texttt{+nu4*delsq(vort,kp)}\\
+$-\nu_5(r)\hat\varpi$                 & \eqref{eq:vort} & \texttt{-nu5\_field*vort}\\
+$+U\,\hat\nabla\!\cdot\!\pb{\hat\nabla\hat\phi}{\hat P}$
+   & \eqref{eq:vort} & \texttt{U*(derx(akw(derx(phi),pres))+dery(akw(dery(phi),pres)))}\\
+$-U\hat\nabla^2 S_p$                  & \eqref{eq:vort} & \texttt{U\_source = -U*delsq(Qp)}\\
+\bottomrule
+\end{tabular}
+\end{center}
+The FLR term uses the identity $\nabla\!\cdot\!\pb{\nabla\phi}{P} =
+\partial_x\pb{\phi_x}{P} + \partial_y\pb{\phi_y}{P}$ (no third derivatives), and
+$S_p\approx Q_p(r)$ as in the paper. The recovery $\hat\varpi=\hat\nabla^2\hat\phi
+\Rightarrow\hat\phi$ is the periodic FFT Poisson solve \texttt{getphi}. Grid-scale
+regularization is provided solely by the \emph{physical} $\nu_4,\nu_4^p$ terms;
+there is no additional numerical hyperdiffusion.
+
+\paragraph{Implementation note (unit conversion).} The wall-bias potential
+$\hat\phi_w$ enters through the line-tying term $H(\hat\phi-\hat\phi_w)$, so ring
+voltages \emph{must} be in the same (normalized) units as $\hat\phi$. With
+\texttt{[bias] units = "volts"} the loader divides \texttt{ring\_volts} by
+$\bar\phi=T_0$ before building \texttt{phi\_w}; lengths and pressure inputs are
+converted analogously when their \texttt{*\_units} switch is set to physical.
+This makes the equilibrium bowl depth $\hat\phi_w\!\sim\!O(1)$ correspond to an
+applied bias $\sim T_{e0}/e$, consistent with Sec.~\ref{sec:bek}.
+
+\end{document}

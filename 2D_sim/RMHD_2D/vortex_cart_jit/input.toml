@@ -1,0 +1,74 @@
+# =====================================================================
+# Beklemishev vortex-confinement model (FST 57 (2010) 351, Eqs. 7-8)
+#   (8) pressure :  dP/dt    = -{phi,P}    + nu4p*Lap(P)   - nu5p(r)*P + Qp
+#   (7) vorticity:  dvort/dt = -{phi,vort} + H*(phi-phi_w) + kappa*{P,r^2}
+#                              + U*div{grad phi,P} + nu4*Lap(vort) - nu5(r)*vort
+#                              - U*Lap(Sp)          (vort = Lap(phi))
+# GDB5B-style TOML input.  Run:  python -m vortex_jit input.toml
+# Defaults reproduce Fig. 5 parameters (kappa=1, H=10, nu5=0.02, nu4=0.002, U=0).
+# =====================================================================
+
+[precision]
+mode = "double"           # "double" (float64, default) | "single" (float32, faster).
+                          # Overridden by env var VORTEX_PREC if set.
+
+[normalization]           # physical reference bases for a realistic machine
+# GDB5B-style normalization (see vortex_normalization.pdf): length->L0,
+# potential->phi_bar=T0/e [V], pressure->P_bar=n0*T0 [Pa], time->t_bar=B0*L0^2/phi_bar.
+B0 = 1.0                  # reference magnetic field           [T]
+n0 = 1.0e19               # reference density                  [m^-3]
+T0 = 100.0               # reference temperature               [eV]  (= phi_bar in Volts)
+L0 = 0.2                 # reference length [m]  (0 -> use rho_s = sound gyroradius)
+Ai = 1.0                 # ion mass number (1 = hydrogen)
+Zi = 1.0                 # ion charge number
+# derived at startup: Omega_i, cs, rho_s, t_bar = B0 L0^2/phi_bar, phi_bar = T0 [V],
+#   P_bar = n0 T0 e [Pa].  Simulation runs in NORMALIZED units (lengths in L0, etc.).
+
+[domain]
+nx = 512
+ny = 512
+length_units = "L0"      # "L0" (lengths already normalized) | "m" (physical, /L0 on read)
+Lx = 3.0                 # HALF-width: domain x in [-Lx, Lx] = [-3, 3] L0 (Beklemishev box)
+Ly = 3.0                 #   full width = 2*Lx = 6 L0; limiter r=1.5 sits well inside
+
+[physics]
+U       = 0.0            # FLR parameter (0 = Fig 5; -5 = Fig 6). Now implemented (both terms).
+H       = 10.0           # plasma-wall line-tying coupling
+kappa   = 1.0            # normalized magnetic curvature (interchange drive)
+nu4     = 0.002          # vorticity perpendicular (collisional) diffusion   [nu4]
+nu5     = 0.02           # vorticity axial loss / drag                       [nu5]
+nu4p    = 0.002          # pressure perpendicular diffusion                  [nu4^p]
+nu5p    = 0.02           # pressure axial loss (base rate)                   [nu5^p]
+limiter_radius = 1.5     # radius beyond which axial loss is enhanced (Beklemishev limiter)
+limiter_factor = 20.0    # axial-loss multiplier outside the limiter
+
+[bias]                   # 11 concentric biasing rings; outermost = limiter,
+                         # held constant out to the square boundary.
+units = "volts"          # "volts" (physical, /phi_bar=T0 on read) | "normalized"
+# outer radius of each ring (ascending, units per [domain] length_units); last reaches edge.
+ring_radii = [0.30, 0.60, 0.90, 1.20, 1.50, 1.80, 2.10, 2.40, 2.70, 3.00, 4.30]
+# applied wall potential on each ring, in physical VOLTS (converted to phi_w = V/T0). <<< EDIT
+ring_volts = [0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0]
+
+[initial]
+pres_units  = "normalized" # "normalized" (pres_amp in units of P_bar) | "Pa" (physical)
+pres_type   = "gaussian" # initial pressure profile: "gaussian" | "parabolic"
+pres_amp    = 1.0        # peak pressure on axis (units per pres_units)
+pres_width  = 1.0        # profile width (units per [domain] length_units)
+perturb_amp = 1.0e-3     # random seed perturbation amplitude (triggers instability)
+seed        = 12345
+Qp          = 0.0        # pressure source Q_p (normalized rate; or "gaussian" + Qp_amp/Qp_width)
+
+[time]
+dt      = 4.0e-5         # time step (normalized, units of t_bar)
+nts     = 2000           # steps per output frame
+nframes = 50             # frames this job (total steps = nts*nframes)
+nfdump  = 10             # write restart every nfdump frames
+
+[output]
+outdir = "./runs/"       # run dir; outdir/<SLURM_JOBID> if that env var is set
+
+[restart]
+nrst        = 0          # 0 = fresh start, 1 = restart (load + continue)
+restartdir  = "./runs/<jobid>/"		# restart function to be tested
+restart_file = "restart.h5"
